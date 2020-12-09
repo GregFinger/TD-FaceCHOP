@@ -5,7 +5,7 @@
 
 ### December 2020 Updates (Greg Finger)
 
-* OpenCV updated to 4.5.0
+* OpenCV updated to 4.5.0 (download this version instead for step 2 of "Installation")
 * dLib updated to 19.21
 * Now has 81 facial landmarks, use .bat from here: https://github.com/codeniko/shape_predictor_81_face_landmarks
 * Custom OP now locates the .bat file automatically as long as the .bat file is placed in the Plugins folder next to the .dll
