@@ -3,6 +3,14 @@
 # TD-FaceCHOP
 #### Face landmark detection with OpenCV and dlib (in TouchDesigner).
 
+### December 2020 Updates (Greg Finger)
+
+* OpenCV updated to 4.5.0
+* dLib updated to 19.21
+* Now has 81 facial landmarks, use .bat from here: https://github.com/codeniko/shape_predictor_81_face_landmarks
+* Custom OP now locates the .bat file automatically as long as the .bat file is placed in the Plugins folder next to the .dll
+* Added an "index" CHOP channel to more easily separate each face's individual data
+
 ![](docs/images/header.png)
 
 FaceCHOP takes an image and an expected camera horizontal field-of-view. The output is 4 channels and many samples. Each detected face corresponds to 71 samples. The first face involves samples 0-70; the second is 71-141; then 142-212 and so on. Of the 71 samples, the first 68 samples are the 2D (tx/ty) locations of the face landmarks. These correspond to the indices of the [iBUG 300-W dataset](https://ibug.doc.ic.ac.uk/resources/facial-point-annotations/).

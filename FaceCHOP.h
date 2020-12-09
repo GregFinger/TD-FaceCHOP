@@ -126,5 +126,6 @@ private:
 	std::vector<dlib::rectangle> faces;
 
 	int MAXFACES = 8;
+	int LMARK_AMT = 81;
 	int numFacesFound = 0;
 };

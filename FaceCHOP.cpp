@@ -76,6 +76,7 @@ DLLEXPORT
 CHOP_CPlusPlusBase*
 CreateCHOPInstance(const OP_NodeInfo* info)
 {
+	const char* ya = info->opPath;
 	// Return a new instance of your class every time this is called.
 	// It will be called once per CHOP that is using the .dll
 	return new FaceCHOP(info);
@@ -122,8 +123,8 @@ FaceCHOP::getGeneralInfo(CHOP_GeneralInfo* ginfo, const OP_Inputs* inputs, void*
 bool
 FaceCHOP::getOutputInfo(CHOP_OutputInfo* info, const OP_Inputs* inputs, void* reserved1)
 {
-	info->numChannels = 4;
-	info->numSamples = MAXFACES*71;
+	info->numChannels = 5;
+	info->numSamples = (LMARK_AMT + 3) * MAXFACES;
 	// info->sampleRate = 60;
 	return true;
 }
@@ -144,6 +145,9 @@ FaceCHOP::getChannelName(int32_t index, OP_String *name, const OP_Inputs* inputs
 		case 3:
 			name->setString("w");
 			break;
+		case 4:
+			name->setString("index");
+			break;
 	}
 }
 
@@ -158,6 +162,35 @@ bool FaceCHOP::loadFaceLandmarks(const char* FaceCascadePar) {
 	}
 	hasLoadedLandmarks = true;
 	return true;
+}
+
+// Find path to .dll */
+// https://stackoverflow.com/a/57738892/12327461
+HMODULE hMod;
+std::wstring PathAndName;
+std::wstring OnlyPath;
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
+{
+	switch (ul_reason_for_call)
+	{
+	case DLL_PROCESS_ATTACH: case DLL_THREAD_ATTACH: case DLL_THREAD_DETACH:
+	case DLL_PROCESS_DETACH:
+		break;
+	}
+	hMod = hModule;
+	const int BUFSIZE = 4096;
+	wchar_t buffer[BUFSIZE];
+	if (::GetModuleFileNameW(hMod, buffer, BUFSIZE - 1) <= 0)
+	{
+		return TRUE;
+	}
+
+	PathAndName = buffer;
+
+	size_t found = PathAndName.find_last_of(L"/\\");
+	OnlyPath = PathAndName.substr(0, found);
+
+	return TRUE;
 }
 
 void FaceCHOP::setup() {
@@ -192,6 +225,32 @@ void FaceCHOP::setup() {
 	imageDownloadOptions.cpuMemPixelType = OP_CPUMemPixelType::BGRA8Fixed;
 	imageDownloadOptions.verticalFlip = true;  // openCV is upside-down compared to TouchDesigner so flip the image.
 
+
+	/* Convert path for Facelandmarksfile */
+	const wchar_t* fileName = L"\\shape_predictor_81_face_landmarks.dat";
+	
+	// Concatenate .dll folder path and .dat file name
+	// https://stackoverflow.com/a/7787234
+	//
+	const std::wstring sSearchPattern = OnlyPath + fileName;
+	std::wcout << sSearchPattern << L'\n';
+
+	// convert const wchar_t to char
+	// https://stackoverflow.com/a/4387335
+	//
+	const wchar_t* path = sSearchPattern.c_str();
+	// Count required buffer size (plus one for null-terminator).
+	size_t size = (wcslen(path) + 1) * sizeof(wchar_t);
+	char* buffer = new char[size];
+	std::wcstombs(buffer, path, size);
+
+	const char* Facelandmarksfile = buffer;
+	delete buffer;
+
+	if (!checkLandmarksFile(Facelandmarksfile)) {
+		return;
+	}
+
 	hasSetup = true;
 }
 
@@ -222,10 +281,7 @@ bool FaceCHOP::checkLandmarksFile(const char* Facelandmarksfile) {
 	return true;
 }
 
-void
-FaceCHOP::execute(CHOP_Output* output,
-							  const OP_Inputs* inputs,
-							  void* reserved)
+void FaceCHOP::execute(CHOP_Output* output, const OP_Inputs* inputs, void* reserved)
 {
 	myExecuteCount++;
 	myErrors = 0; // Reset errors
@@ -233,12 +289,6 @@ FaceCHOP::execute(CHOP_Output* output,
 
 	if (!hasSetup) {
 		setup();
-	}
-
-	const char* Facelandmarksfile = inputs->getParFilePath("Facelandmarksfile");
-
-	if (!checkLandmarksFile(Facelandmarksfile)) {
-		return;
 	}
 
 	// Get the image that might have faces in it.
@@ -299,7 +349,6 @@ FaceCHOP::execute(CHOP_Output* output,
 	distCoeffs = 0.f;
 
 	numFacesFound = int(faces.size());
-
 	bool Facelandmarkstoggle = bool(inputs->getParDouble("Facelandmarkstoggle"));
 
 	for (int face_i = 0; face_i < MAXFACES; face_i++) {
@@ -307,35 +356,38 @@ FaceCHOP::execute(CHOP_Output* output,
 		if (face_i < numFacesFound) {
 
 			dlib::rectangle faceRect = faces[face_i];
-
+			
 			// first save the face rectangle
-			int offset = 71 * face_i + 68;
+			int offset = (LMARK_AMT + 3) * face_i + LMARK_AMT;
 
 			output->channels[0][offset] = .5 * (faceRect.right() + faceRect.left()) / width; // avg x normalized to pct
 			output->channels[1][offset] = 1.-.5 * (faceRect.top() + faceRect.bottom()) / height; // avg y normalized to pct
 			output->channels[2][offset] = (faceRect.right() - faceRect.left()) / width; // face size x normalize to pct
 			output->channels[3][offset] = (faceRect.bottom() - faceRect.top()) / height; // face size y normalized to pct
+			output->channels[4][offset] = face_i + 1;
 
 			if (!Facelandmarkstoggle) {
-				for (int i = 0; i < 68; i++) {
-					offset = 71 * face_i + i;
+				for (int i = 0; i < LMARK_AMT; i++) {
+					offset = LMARK_AMT * face_i + i;
 					output->channels[0][offset] = 0.0f;
 					output->channels[1][offset] = 0.0f;
 					output->channels[2][offset] = 0.0f;
 					output->channels[3][offset] = 0.0f;
+					output->channels[4][offset] = face_i + 1;
 				}
 				continue;
 			}
 			
 			dlib::full_object_detection shape = predictor(cimg, faceRect);
 
-			for (int i = 0; i < 68; i++) {
+			for (int i = 0; i < LMARK_AMT; i++) {
 				dlib::point p = shape.part(i);
-				offset = 71 * face_i + i;
+				offset = (LMARK_AMT + 3) * face_i + i;
 				output->channels[0][offset] =  ((p.x() / width) - .5);
 				output->channels[1][offset] = -((p.y() / height) - .5) / aspect;
 				output->channels[2][offset] = 0.0f;
 				output->channels[3][offset] = 1.f;
+				output->channels[4][offset] = face_i + 1;
 
 			}
 
@@ -371,26 +423,29 @@ FaceCHOP::execute(CHOP_Output* output,
 				cv::hconcat(rotation_mat, translation_vec, pose_mat);
 				cv::decomposeProjectionMatrix(pose_mat, out_intrinsics, out_rotation, out_translation, cv::noArray(), cv::noArray(), cv::noArray(), euler_angle);
 
-				offset = 71 * face_i + 68;
+				offset = (LMARK_AMT + 3) * face_i + LMARK_AMT;
 				offset += 1;
 				output->channels[0][offset] = -translation_vec.at<float>(0, 0);
 				output->channels[1][offset] = translation_vec.at<float>(1, 0);
 				output->channels[2][offset] = translation_vec.at<float>(2, 0);
 				output->channels[3][offset] = 1.f;
+				output->channels[4][offset] = face_i + 1;
 				offset += 1;
 				output->channels[0][offset] = euler_angle.at<double>(0);
 				output->channels[1][offset] = -euler_angle.at<double>(1);
 				output->channels[2][offset] = -euler_angle.at<double>(2);
 				output->channels[3][offset] = 1.f;
+				output->channels[4][offset] = face_i + 1;
 			}
 		}
 		else {
-			for (int i = 0; i < 71; i++) {
-				int offset = face_i * 71 + i;
+			for (int i = 0; i < (LMARK_AMT + 3); i++) {
+				int offset = face_i * (LMARK_AMT + 3) + i;
 				output->channels[0][offset] = 0.f;
 				output->channels[1][offset] = 0.f;
 				output->channels[2][offset] = 0.f;
 				output->channels[3][offset] = 0.f;
+				output->channels[4][offset] = 0.f;
 			}
 		}
 	}
@@ -407,7 +462,7 @@ void FaceCHOP::getErrorString(OP_String* error, void* reserved1) {
 			error->setString("");
 			break;
 		case 1:
-			error->setString("shape_predictor_68_face_landmarks.dat File is missing");
+			error->setString("Face Landmarks File is missing");
 			break;
 		case 2:
 			error->setString("Error while loading face landmarks file.");
@@ -499,17 +554,6 @@ FaceCHOP::getInfoDATEntries(int32_t index,
 void
 FaceCHOP::setupParameters(OP_ParameterManager* manager, void *reserved1)
 {
-
-	// Face Landmarks File
-	{
-		OP_StringParameter sp;
-
-		sp.name = "Facelandmarksfile";
-		sp.label = "Face Landmarks File";
-		sp.defaultValue = "shape_predictor_68_face_landmarks.dat";
-		OP_ParAppendResult res = manager->appendFile(sp);
-		assert(res == OP_ParAppendResult::Success);
-	}
 
 	// Field of View of the camera
 	{
