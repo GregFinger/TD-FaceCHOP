@@ -76,7 +76,6 @@ DLLEXPORT
 CHOP_CPlusPlusBase*
 CreateCHOPInstance(const OP_NodeInfo* info)
 {
-	const char* ya = info->opPath;
 	// Return a new instance of your class every time this is called.
 	// It will be called once per CHOP that is using the .dll
 	return new FaceCHOP(info);
@@ -377,9 +376,8 @@ void FaceCHOP::execute(CHOP_Output* output, const OP_Inputs* inputs, void* reser
 				}
 				continue;
 			}
-			
-			dlib::full_object_detection shape = predictor(cimg, faceRect);
 
+			dlib::full_object_detection shape = predictor(cimg, faceRect);
 			for (int i = 0; i < LMARK_AMT; i++) {
 				dlib::point p = shape.part(i);
 				offset = (LMARK_AMT + 3) * face_i + i;
@@ -387,8 +385,7 @@ void FaceCHOP::execute(CHOP_Output* output, const OP_Inputs* inputs, void* reser
 				output->channels[1][offset] = -((p.y() / height) - .5) / aspect;
 				output->channels[2][offset] = 0.0f;
 				output->channels[3][offset] = 1.f;
-				output->channels[4][offset] = face_i + 1;
-
+				output->channels[4][offset] = face_i + 1;				
 			}
 
 			// fill in 2D ref points, annotations follow https://ibug.doc.ic.ac.uk/resources/300-W/
@@ -599,7 +596,6 @@ FaceCHOP::setupParameters(OP_ParameterManager* manager, void *reserved1)
 		OP_ParAppendResult res = manager->appendToggle(np);
 		assert(res == OP_ParAppendResult::Success);
 	}
-
 	// Frame skip for face rectangle
 	// value of 0 means update face rectangles EVERY frame
 	// value of 1 means update face rectangles every other frame
