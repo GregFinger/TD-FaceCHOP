@@ -70,6 +70,8 @@ FillCHOPPluginInfo(CHOP_PluginInfo *info)
 
 	// It can accept up to 1 input though, which changes its behavior
 	info->customOPInfo.maxInputs = 0;
+
+	info->customOPInfo.majorVersion = 1;
 }
 
 DLLEXPORT
@@ -151,45 +153,17 @@ FaceCHOP::getChannelName(int32_t index, OP_String *name, const OP_Inputs* inputs
 }
 
 // return true if successfully loaded landmarks file. otherwise false
-bool FaceCHOP::loadFaceLandmarks(const char* FaceCascadePar) {
+bool FaceCHOP::loadLandmarks(const char* CascadePar) {
 	try
 	{
-		dlib::deserialize(FaceCascadePar) >> predictor;
+		dlib::deserialize(CascadePar) >> predictor;
 	}
 	catch (const std::exception&) {
 		return false;
 	}
 	hasLoadedLandmarks = true;
+	Landmarksfile = CascadePar;
 	return true;
-}
-
-// Find path to .dll */
-// https://stackoverflow.com/a/57738892/12327461
-HMODULE hMod;
-std::wstring PathAndName;
-std::wstring OnlyPath;
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
-{
-	switch (ul_reason_for_call)
-	{
-	case DLL_PROCESS_ATTACH: case DLL_THREAD_ATTACH: case DLL_THREAD_DETACH:
-	case DLL_PROCESS_DETACH:
-		break;
-	}
-	hMod = hModule;
-	const int BUFSIZE = 4096;
-	wchar_t buffer[BUFSIZE];
-	if (::GetModuleFileNameW(hMod, buffer, BUFSIZE - 1) <= 0)
-	{
-		return TRUE;
-	}
-
-	PathAndName = buffer;
-
-	size_t found = PathAndName.find_last_of(L"/\\");
-	OnlyPath = PathAndName.substr(0, found);
-
-	return TRUE;
 }
 
 void FaceCHOP::setup() {
@@ -224,32 +198,6 @@ void FaceCHOP::setup() {
 	imageDownloadOptions.cpuMemPixelType = OP_CPUMemPixelType::BGRA8Fixed;
 	imageDownloadOptions.verticalFlip = true;  // openCV is upside-down compared to TouchDesigner so flip the image.
 
-
-	/* Convert path for Facelandmarksfile */
-	const wchar_t* fileName = L"\\shape_predictor_81_face_landmarks.dat";
-	
-	// Concatenate .dll folder path and .dat file name
-	// https://stackoverflow.com/a/7787234
-	//
-	const std::wstring sSearchPattern = OnlyPath + fileName;
-	std::wcout << sSearchPattern << L'\n';
-
-	// convert const wchar_t to char
-	// https://stackoverflow.com/a/4387335
-	//
-	const wchar_t* path = sSearchPattern.c_str();
-	// Count required buffer size (plus one for null-terminator).
-	size_t size = (wcslen(path) + 1) * sizeof(wchar_t);
-	char* buffer = new char[size];
-	std::wcstombs(buffer, path, size);
-
-	const char* Facelandmarksfile = buffer;
-	delete buffer;
-
-	if (!checkLandmarksFile(Facelandmarksfile)) {
-		return;
-	}
-
 	hasSetup = true;
 }
 
@@ -259,19 +207,19 @@ cv::Point2d FaceCHOP::pToUV(dlib::full_object_detection shape, int index, double
 	return cv::Point2d(p.x() / width - .5, (p.y() / height - .5) / aspect);
 }
 
-bool FaceCHOP::checkLandmarksFile(const char* Facelandmarksfile) {
-	
+bool FaceCHOP::checkLandmarksFile(const char* Landmarksfile) {
+
 	if (hasLoadedLandmarks) {
 		return true;
 	}
 
-	if (emptyString.compare(Facelandmarksfile) == 0) {
+	if (emptyString.compare(Landmarksfile) == 0) {
 
 		myErrors = 1;
 		return false;
 	}
 	else if (!hasLoadedLandmarks) {
-		if (!loadFaceLandmarks(Facelandmarksfile)) {
+		if (!loadLandmarks(Landmarksfile)) {
 			myErrors = 2;
 			return false;
 		}
@@ -288,6 +236,14 @@ void FaceCHOP::execute(CHOP_Output* output, const OP_Inputs* inputs, void* reser
 
 	if (!hasSetup) {
 		setup();
+	}
+
+	const char* Landmarksfilepar = inputs->getParFilePath("Landmarksfile");
+	if (Landmarksfile.compare(Landmarksfilepar) != 0) {
+		hasLoadedLandmarks = false;
+		if (!checkLandmarksFile(Landmarksfilepar)) {
+			return;
+		}
 	}
 
 	// Get the image that might have faces in it.
@@ -346,9 +302,10 @@ void FaceCHOP::execute(CHOP_Output* output, const OP_Inputs* inputs, void* reser
 
 	cv::Mat_<double> distCoeffs(cv::Size(1, 4));
 	distCoeffs = 0.f;
+	LMARK_AMT = inputs->getParInt("Landmarkamt");
 
 	numFacesFound = int(faces.size());
-	bool Facelandmarkstoggle = bool(inputs->getParDouble("Facelandmarkstoggle"));
+	bool Landmarkstoggle = bool(inputs->getParDouble("Landmarkstoggle"));
 
 	for (int face_i = 0; face_i < MAXFACES; face_i++) {
 
@@ -365,7 +322,7 @@ void FaceCHOP::execute(CHOP_Output* output, const OP_Inputs* inputs, void* reser
 			output->channels[3][offset] = (faceRect.bottom() - faceRect.top()) / height; // face size y normalized to pct
 			output->channels[4][offset] = face_i + 1;
 
-			if (!Facelandmarkstoggle) {
+			if (!Landmarkstoggle) {
 				for (int i = 0; i < LMARK_AMT; i++) {
 					offset = LMARK_AMT * face_i + i;
 					output->channels[0][offset] = 0.0f;
@@ -459,10 +416,10 @@ void FaceCHOP::getErrorString(OP_String* error, void* reserved1) {
 			error->setString("");
 			break;
 		case 1:
-			error->setString("Face Landmarks File is missing");
+			error->setString("Landmarks File is missing");
 			break;
 		case 2:
-			error->setString("Error while loading face landmarks file.");
+			error->setString("Error while loading landmarks file.");
 			break;
 		case 3:
 			error->setString("No video input.");
@@ -552,6 +509,17 @@ void
 FaceCHOP::setupParameters(OP_ParameterManager* manager, void *reserved1)
 {
 
+	// Landmarks File
+	{
+		OP_StringParameter sp;
+
+		sp.name = "Landmarksfile";
+		sp.label = "Landmarks File";
+		sp.defaultValue = "shape_predictor_81_face_landmarks.dat";
+		OP_ParAppendResult res = manager->appendFile(sp);
+		assert(res == OP_ParAppendResult::Success);
+	}
+
 	// Field of View of the camera
 	{
 		OP_NumericParameter np;
@@ -589,13 +557,25 @@ FaceCHOP::setupParameters(OP_ParameterManager* manager, void *reserved1)
 	{
 		OP_NumericParameter	np;
 
-		np.name = "Facelandmarkstoggle";
-		np.label = "Face Landmarks";
+		np.name = "Landmarkstoggle";
+		np.label = "Landmarks";
 		np.defaultValues[0] = 1.0;
 
 		OP_ParAppendResult res = manager->appendToggle(np);
 		assert(res == OP_ParAppendResult::Success);
 	}
+	
+	{
+		OP_NumericParameter	np;
+
+		np.name = "Landmarkamt";
+		np.label = "Landmark Amount";
+		np.defaultValues[0] = 81;
+
+		OP_ParAppendResult res = manager->appendInt(np);
+		assert(res == OP_ParAppendResult::Success);
+	}
+	
 	// Frame skip for face rectangle
 	// value of 0 means update face rectangles EVERY frame
 	// value of 1 means update face rectangles every other frame

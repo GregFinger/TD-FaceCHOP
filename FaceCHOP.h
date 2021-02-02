@@ -83,7 +83,7 @@ private:
 
 	// FaceCHOP functions
 	cv::Point2d FaceCHOP::pToUV(dlib::full_object_detection shape, int index, double width, double height, double aspect);
-	bool FaceCHOP::loadFaceLandmarks(const char* FaceCascadePar);
+	bool FaceCHOP::loadLandmarks(const char* CascadePar);
 	void setup();
 	virtual void getErrorString(OP_String* error, void* reserved1) override;
 	virtual void getWarningString(OP_String* warning, void* reserved1) override;
@@ -127,5 +127,6 @@ private:
 
 	int MAXFACES = 8;
 	int LMARK_AMT = 81;
-	int numFacesFound = 0;
+	int numFacesFound = 0; 
+	std::string Landmarksfile;
 };
